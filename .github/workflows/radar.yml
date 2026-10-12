@@ -18,8 +18,9 @@ jobs:
           python-version: '3.12'
       - name: Coletar e alertar
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERT_EMAIL: arthurgfrota@gmail.com
         run: python radar.py
       - name: Persistir historico
         run: |
