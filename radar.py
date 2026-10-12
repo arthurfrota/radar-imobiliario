@@ -85,6 +85,35 @@ def send_digest(matches, changes):
             smtp.starttls(); smtp.login(user,password); smtp.send_message(msg)
     print("Relatorio enviado para",recipient)
     return True
+def send_telegram(matches, changes):
+    """Envia resumo ao Telegram, sem expor token ou chat ID."""
+    token=os.getenv("TELEGRAM_BOT_TOKEN")
+    chat=os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat:
+        print("Telegram nao configurado: adicione TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID nos GitHub Secrets")
+        return False
+    items=sorted(changes,key=lambda x:-x["discount"])[:12]
+    lines=[f"Radar Imobiliario | {len(changes)} novidades | {len(matches)} oportunidades"]
+    if not items:
+        lines.append("Nenhuma oportunidade nova ou alterada hoje.")
+    for item in items:
+        lines.append(
+            f"\\n{item['city']} / {item['bairro']}\\n"
+            f"R$ {item['price']:,.0f} | desconto {item['discount']}% sobre avaliacao\\n"
+            f"{item['address']}\\n{item['url']}"
+        )
+    lines.append("\\nDesconto sobre avaliacao nao equivale a desconto sobre preco de mercado. Confira edital e situacao juridica.")
+    message="\\n".join(lines)
+    req=urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data=urlencode({"chat_id":chat,"text":message}).encode("utf-8")
+    )
+    with urllib.request.urlopen(req,timeout=30) as response:
+        if not json.load(response).get("ok"):
+            raise RuntimeError("Falha ao enviar mensagem Telegram")
+    print("Resumo enviado ao Telegram")
+    return True
+
 def main():
     previous=json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
     baseline=not STATE.exists()
@@ -101,7 +130,7 @@ def main():
         key=item["id"]; fingerprint=f"{item['price']:.2f}:{item['modality']}"
         if previous.get(key)!=fingerprint:
             changes.append(item)
-    sent=send_digest(matches,changes)
+    sent=send_telegram(matches,changes)
     if sent:
         for item in matches:
             updated[item["id"]]=f"{item['price']:.2f}:{item['modality']}"
