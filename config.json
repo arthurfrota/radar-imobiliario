@@ -1,0 +1,33 @@
+{
+  "alert_on_first_run": false,
+  "locations": {
+    "SP": {
+      "cities": [
+        "SAO PAULO"
+      ],
+      "neighborhoods": [
+        "Brooklin",
+        "Itaim",
+        "Cidade Jardim",
+        "Vila Nova Conceicao",
+        "Jardim Paulistano",
+        "Moema",
+        "Pinheiros",
+        "Morumbi"
+      ],
+      "max_price": 5000000,
+      "min_discount": 35,
+      "apartment_only": true
+    },
+    "CE": {
+      "cities": [
+        "FORTALEZA",
+        "EUSEBIO"
+      ],
+      "neighborhoods": [],
+      "max_price": 5000000,
+      "min_discount": 35,
+      "apartment_only": false
+    }
+  }
+}
