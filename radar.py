@@ -43,18 +43,47 @@ def match(row,uf):
     ident=get(row,"n do imovel","n° do imovel","nº do imovel","numero do imovel")
     if not ident: return None
     return {"id":uf+":"+ident,"city":get(row,"cidade"),"bairro":get(row,"bairro"),"price":price,"appraisal":appraisal,"discount":round(discount,1),"address":get(row,"endereco"),"modality":get(row,"modalidade"),"url":get(row,"link de acesso") or "https://venda-imoveis.caixa.gov.br/sistema/busca-imovel.asp"}
-def notify(item):
-    token=os.getenv("TELEGRAM_BOT_TOKEN"); chat=os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat:
-        print("Telegram nao configurado:",item["id"]); return False
-    msg=(f"RADAR IMOBILIARIO | {item['city']} - {item['bairro']}\n"
-         f"Preco: R$ {item['price']:,.0f}\nAvaliacao: R$ {item['appraisal']:,.0f}\n"
-         f"Desconto sobre avaliacao: {item['discount']}%\n{item['address']}\n"
-         f"{item['modality']}\n{item['url']}\n"
-         "Conferir disponibilidade, edital, matricula, ocupacao e dividas.")
-    req=urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",data=urlencode({"chat_id":chat,"text":msg}).encode())
-    with urllib.request.urlopen(req,timeout=20) as r:
-        if not json.load(r).get("ok"): raise RuntimeError("Telegram recusou mensagem")
+def send_digest(matches, changes):
+    """Envia resumo diario por SMTP TLS, sem credenciais no codigo."""
+    import smtplib
+    from email.message import EmailMessage
+    host=os.getenv("SMTP_HOST","smtp.gmail.com")
+    port=int(os.getenv("SMTP_PORT","465"))
+    user=os.getenv("SMTP_USER")
+    password=os.getenv("SMTP_PASSWORD")
+    recipient=os.getenv("ALERT_EMAIL","arthurgfrota@gmail.com")
+    if not user or not password:
+        print("E-mail nao configurado: defina SMTP_USER e SMTP_PASSWORD nos Secrets")
+        return False
+    msg=EmailMessage()
+    msg["From"]=user
+    msg["To"]=recipient
+    msg["Subject"]=f"Radar Imobiliario | {len(changes)} novidades | {len(matches)} oportunidades"
+    lines=[
+        "RADAR IMOBILIARIO - RELATORIO DIARIO","",
+        f"Oportunidades filtradas: {len(matches)}",
+        f"Novas ou alteradas: {len(changes)}","",
+        "ATENCAO: desconto calculado sobre avaliacao da Caixa, nao sobre valor de mercado.",
+        "Verifique edital, matricula, ocupacao, dividas e disponibilidade antes de qualquer decisao.","",
+        "NOVIDADES",""
+    ]
+    for item in sorted(changes,key=lambda x:-x["discount"])[:30]:
+        lines.extend([
+            f"{item['city']} / {item['bairro']} - R$ {item['price']:,.2f} - desconto {item['discount']}%",
+            f"Avaliacao: R$ {item['appraisal']:,.2f} | {item['address']}",
+            f"Modalidade: {item['modality']} | {item['url']}",""
+        ])
+    lines.extend(["","RESUMO DAS MELHORES OPORTUNIDADES",""])
+    for item in sorted(matches,key=lambda x:-x["discount"])[:20]:
+        lines.append(f"{item['city']} / {item['bairro']} | R$ {item['price']:,.2f} | {item['discount']}% | {item['url']}")
+    msg.set_content("\n".join(lines))
+    if port==465:
+        with smtplib.SMTP_SSL(host,port,timeout=30) as smtp:
+            smtp.login(user,password); smtp.send_message(msg)
+    else:
+        with smtplib.SMTP(host,port,timeout=30) as smtp:
+            smtp.starttls(); smtp.login(user,password); smtp.send_message(msg)
+    print("Relatorio enviado para",recipient)
     return True
 def main():
     previous=json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
@@ -67,12 +96,15 @@ def main():
             matches.extend(item for row in rows if (item:=match(row,uf)))
         except Exception as e: print("ERRO na coleta",uf,repr(e))
     if not successful: raise RuntimeError("Nenhuma fonte coletada com sucesso")
+    changes=[]
     for item in matches:
         key=item["id"]; fingerprint=f"{item['price']:.2f}:{item['modality']}"
-        if previous.get(key)==fingerprint: continue
-        if baseline and not CONFIG.get("alert_on_first_run",False):
-            print("BASELINE",key); updated[key]=fingerprint
-        elif notify(item): updated[key]=fingerprint
+        if previous.get(key)!=fingerprint:
+            changes.append(item)
+    sent=send_digest(matches,changes)
+    if sent:
+        for item in matches:
+            updated[item["id"]]=f"{item['price']:.2f}:{item['modality']}"
     STATE.parent.mkdir(exist_ok=True)
     STATE.write_text(json.dumps(updated,ensure_ascii=False,indent=2),encoding="utf-8")
     (ROOT/"data"/"matches.json").write_text(json.dumps(matches,ensure_ascii=False,indent=2),encoding="utf-8")
